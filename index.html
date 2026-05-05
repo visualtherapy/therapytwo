@@ -75,7 +75,7 @@
 
         h1 { font-size: 1.5rem; color: var(--primary-color); margin-bottom: 20px; }
 
-        .hidden { display: none; }
+        .hidden { display: none !important; }
 
         input[type="text"] {
             width: 100%;
@@ -150,7 +150,6 @@
         <p id="errorMsg" class="error">ID TIDAK SAH (P001-P099 SAHAJA)</p>
         <button onclick="login()">START THERAPY</button>
         
-        <!-- Info Pencipta & Versi (Page 1 Sahaja) -->
         <div class="creator-info">
             Created by: Muhammad Syafiq Hakimi bin Osman<br>
             Version : V1.4
@@ -180,22 +179,15 @@
         const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 
         function playSciFiSound() {
-            // Resume context jika browser suspend auto-play
-            if (audioCtx.state === 'suspended') {
-                audioCtx.resume();
-            }
+            if (audioCtx.state === 'suspended') audioCtx.resume();
             
             const oscillator = audioCtx.createOscillator();
             const gainNode = audioCtx.createGain();
             
-            // Bentuk gelombang untuk bunyi digital
             oscillator.type = 'square'; 
-            
-            // Pitch drop effect (mula tinggi, cepat turun)
             oscillator.frequency.setValueAtTime(880, audioCtx.currentTime); 
             oscillator.frequency.exponentialRampToValueAtTime(110, audioCtx.currentTime + 0.1);
             
-            // Volume control (pendek & fade out)
             gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
             gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.1);
             
@@ -206,7 +198,6 @@
             oscillator.stop(audioCtx.currentTime + 0.1);
         }
 
-        // Tambah event listener pada semua butang
         document.querySelectorAll('button').forEach(btn => {
             btn.addEventListener('click', playSciFiSound);
         });
@@ -219,13 +210,11 @@
         let currentTimer;
         let timeLeft = SESSION_DURATION;
         let sessionNo = 1;
-        let sessionData = {};
 
         // --- BACKGROUND GENERATOR (STARS) ---
         function createStars() {
             const container = document.getElementById('stars');
-            const starCount = 150;
-            for (let i = 0; i < starCount; i++) {
+            for (let i = 0; i < 150; i++) {
                 const star = document.createElement('div');
                 star.className = 'star';
                 const size = Math.random() * 3 + 'px';
@@ -241,22 +230,46 @@
 
         // --- LOGIK APP ---
         window.onload = () => {
+            // Sentiasa paparkan Page 1 bila di-refresh
+            document.getElementById("page1").classList.remove("hidden");
+            document.getElementById("page2").classList.add("hidden");
+
+            // Auto-isi ID jika pernah login
             const savedId = localStorage.getItem("participantId");
             if (savedId) {
                 document.getElementById("participantId").value = savedId;
-                showPage2(savedId);
             }
         };
 
         function login() {
             const idInput = document.getElementById("participantId").value.toUpperCase();
             const errorMsg = document.getElementById("errorMsg");
-            
-            // Validasi Strict P001 - P099
             const regex = /^P0(?:0[1-9]|[1-9][0-9])$/;
 
             if (regex.test(idInput)) {
-                localStorage.setItem("participantId", idInput);
+                const savedId = localStorage.getItem("participantId");
+                const today = new Date().toDateString();
+                const lastLoginDate = localStorage.getItem("lastLoginDate");
+
+                // Cek jika ID sama DAN di hari yang sama, kita sambung progress
+                if (savedId === idInput && lastLoginDate === today) {
+                    const savedSession = localStorage.getItem("sessionNo");
+                    const savedTime = localStorage.getItem("timeLeft");
+                    
+                    if (savedSession) sessionNo = parseInt(savedSession);
+                    if (savedTime) timeLeft = parseInt(savedTime);
+                } else {
+                    // ID baru ATAU hari baru, reset semua progress ke default
+                    localStorage.setItem("participantId", idInput);
+                    localStorage.setItem("lastLoginDate", today);
+                    sessionNo = 1;
+                    timeLeft = SESSION_DURATION;
+                    
+                    localStorage.setItem("sessionNo", sessionNo);
+                    localStorage.setItem("timeLeft", timeLeft);
+                    localStorage.removeItem("startTime");
+                }
+
                 showPage2(idInput);
             } else {
                 errorMsg.style.display = "block";
@@ -266,16 +279,36 @@
         function showPage2(id) {
             document.getElementById("page1").classList.add("hidden");
             document.getElementById("page2").classList.remove("hidden");
+            
             document.getElementById("welcomeText").innerText = `ID: ${id}`;
+            document.getElementById("sessionCount").innerText = sessionNo;
+            updateTimerDisplay(timeLeft);
+
+            const startBtn = document.getElementById("startBtn");
+            startBtn.classList.remove("hidden");
+            document.getElementById("postSessionBtns").classList.add("hidden");
+
+            // Jika ada baki masa (peserta ter-refresh), tukar teks ke SAMBUNG
+            if (timeLeft < SESSION_DURATION && timeLeft > 0) {
+                startBtn.innerText = "SAMBUNG UJIAN";
+            } else {
+                startBtn.innerText = "MULA UJIAN";
+            }
         }
 
         function startTimer() {
             document.getElementById("startBtn").classList.add("hidden");
-            sessionData.startTime = new Date();
+            
+            // Simpan Start Time jika belum ada untuk sesi ini (kalis-refresh)
+            if (!localStorage.getItem("startTime")) {
+                localStorage.setItem("startTime", new Date().toISOString());
+            }
             
             currentTimer = setInterval(() => {
                 timeLeft--;
+                localStorage.setItem("timeLeft", timeLeft); // Simpan state setiap 1 saat
                 updateTimerDisplay(timeLeft);
+                
                 if (timeLeft <= 0) {
                     clearInterval(currentTimer);
                     endSession();
@@ -290,7 +323,6 @@
         }
 
         function endSession() {
-            sessionData.endTime = new Date();
             sendDataToBackend("Completed");
 
             if (sessionNo < MAX_SESSIONS) {
@@ -303,25 +335,45 @@
         function nextSession() {
             sessionNo++;
             timeLeft = SESSION_DURATION;
+            
+            // Simpan state sesi baru ke Local Storage
+            localStorage.setItem("sessionNo", sessionNo);
+            localStorage.setItem("timeLeft", timeLeft);
+            localStorage.removeItem("startTime"); 
+            
             document.getElementById("sessionCount").innerText = sessionNo;
             document.getElementById("postSessionBtns").classList.add("hidden");
             updateTimerDisplay(timeLeft);
-            document.getElementById("startBtn").classList.remove("hidden");
+            
+            const startBtn = document.getElementById("startBtn");
+            startBtn.innerText = "MULA UJIAN";
+            startBtn.classList.remove("hidden");
         }
 
         function saveAndExit() {
             document.getElementById("page2").innerHTML = "<h1>TERIMA KASIH</h1><p>Data anda telah berjaya disimpan.</p>";
+            // Reset state supaya esok mula baru (Pilihan: Boleh dibuang kalau nak auto-reset esok hari)
+            localStorage.removeItem("sessionNo");
+            localStorage.removeItem("timeLeft");
+            localStorage.removeItem("startTime");
         }
 
         function sendDataToBackend(status) {
             const loadingDiv = document.getElementById("loading");
             loadingDiv.classList.remove("hidden");
+            loadingDiv.innerText = "MENYIMPAN DATA...";
 
             const pID = localStorage.getItem("participantId");
-            const pDate = sessionData.startTime.toLocaleDateString('en-GB'); 
-            const startTime = sessionData.startTime.toLocaleTimeString('en-GB');
-            const endTime = sessionData.endTime.toLocaleTimeString('en-GB');
-            const duration = ((sessionData.endTime - sessionData.startTime) / 60000).toFixed(2);
+            const savedStartTimeStr = localStorage.getItem("startTime");
+            
+            // Guna masa start dari Local Storage supaya duration tepat walau di-refresh
+            const startTimeObj = savedStartTimeStr ? new Date(savedStartTimeStr) : new Date();
+            const endTimeObj = new Date();
+
+            const pDate = startTimeObj.toLocaleDateString('en-GB'); 
+            const startTime = startTimeObj.toLocaleTimeString('en-GB');
+            const endTime = endTimeObj.toLocaleTimeString('en-GB');
+            const duration = ((endTimeObj - startTimeObj) / 60000).toFixed(2);
 
             const payload = {
                 pID: pID,
